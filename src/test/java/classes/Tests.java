@@ -86,7 +86,7 @@ public class Tests {
         assertNotNull(inst);
     }
 
-//    @Test(expected=ContainerException.class) //todo
+    //    @Test(expected=ContainerException.class) //todo
     @Test()
     public void injectMissingDefaultImplementationForInterface() throws Exception {
         AI inst = r.getInstance(AI.class);
@@ -111,5 +111,16 @@ public class Tests {
         assertNotNull(inst);
         assertNotNull(inst.email);
         assertEquals(inst.email, "mailto:" + email);
+    }
+
+    @Test
+    public void constructorInjectWithNamedParam() throws Exception {
+        A a = new A();
+        r.registerInstance("aNamedField", a);
+        EN inst = r.getInstance(EN.class);
+
+        assertNotNull(inst);
+        assertNotNull(inst.aField);
+        assertEquals(a, inst.aField);
     }
 }
