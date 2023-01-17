@@ -1,13 +1,14 @@
 package com.github.kardzhaliyski;
 
-import com.github.kardzhaliyski.annotations.Default;
-import com.github.kardzhaliyski.annotations.Inject;
-import com.github.kardzhaliyski.annotations.Named;
-import com.github.kardzhaliyski.annotations.NamedParameter;
+import com.github.kardzhaliyski.annotations.*;
 import com.github.kardzhaliyski.classes.Initializer;
+import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.util.*;
 
@@ -34,21 +35,19 @@ public class Container {
             return (T) ins;
         }
 
-        Class<?> clazzImpl = null;
-        if (c.isInterface()) {
-            clazzImpl = implementations.get(c);
-            if (clazzImpl == null) {
-                Default ann = c.getDeclaredAnnotation(Default.class);
-                if (ann != null) {
-                    clazzImpl = ann.value();
-                    implementations.put(c, clazzImpl);
-                }
-            }
-
-            if (clazzImpl == null) {
-                return null; //todo throws
+        Class<?> clazzImpl = implementations.get(c);
+        if (clazzImpl == null) {
+            Default ann = c.getDeclaredAnnotation(Default.class);
+            if (ann != null) {
+                clazzImpl = ann.value();
+                implementations.put(c, clazzImpl);
             }
         }
+
+        if (clazzImpl == null && (c.isInterface() || isAbstract(c))) {
+            throw new ContainerException("No implementation found for Interface: " + c.getName());
+        }
+
 
         clazzImpl = clazzImpl != null ? clazzImpl : c;
         Object instance = classInstances.get(clazzImpl);
@@ -57,7 +56,7 @@ public class Container {
         }
 
         if (initsInProgress.contains(clazzImpl)) {
-            throw new IllegalStateException("Circular dependancy error. For class: " + clazzImpl);
+            throw new ContainerException("Circular dependency error. For class: " + clazzImpl);
         }
 
         try {
@@ -66,8 +65,13 @@ public class Container {
         } finally {
             initsInProgress.remove(clazzImpl);
         }
+
         classInstances.put(c, ins);
         return (T) ins;
+    }
+
+    private <T> boolean isAbstract(Class<T> c) {
+        return Modifier.isAbstract(c.getModifiers());
     }
 
     private Object initClass(Class<?> clazz) throws Exception {
@@ -90,10 +94,18 @@ public class Container {
                 continue;
             }
 
-            Named named = field.getDeclaredAnnotation(Named.class);
+            Lazy lazy = field.getDeclaredAnnotation(Lazy.class);
             Object o;
+            if (lazy != null) {
+                o = getLazyObject(instance, field);
+                field.set(instance, o);
+                continue;
+            }
+
+            Named named = field.getDeclaredAnnotation(Named.class);
             if (named != null) {
                 o = getInstance(field.getName());
+                field.set(instance, o);
             } else {
                 Class<?> type = field.getType();
                 o = getInstance(type);
@@ -101,6 +113,28 @@ public class Container {
 
             field.set(instance, o);
         }
+    }
+
+    private Object getLazyObject(Object instance, Field field) {
+        Class<?> type = field.getType();
+        return Mockito.mock(type, new Answer() {
+            Object inst = instance;
+            Field f = field;
+
+            @Override
+            public Object answer(InvocationOnMock invocationOnMock) throws Throwable {
+                Named named = f.getDeclaredAnnotation(Named.class);
+                Object o;
+                if (named != null) {
+                    o = getInstance(field.getName());
+                } else {
+                    o = getInstance(field.getType());
+                }
+
+                f.set(inst, o);
+                return invocationOnMock.getMethod().invoke(o, invocationOnMock.getArguments());
+            }
+        });
     }
 
     private Object makeInstance(Class<?> clazz) throws Exception {
@@ -125,8 +159,9 @@ public class Container {
             }
 
             Class<?> pt = param.getType();
-            params[i] = getInstance(pt); //todo maybe cache exception
+            params[i] = getInstance(pt);
         }
+
         return params;
     }
 
@@ -138,9 +173,12 @@ public class Container {
                 continue;
             }
 
+            if (constructor != null) {
+                throw new ContainerException("More then one constructor set with @Inject annotation. For class: " + clazz.getName());
+            }
+
             c.setAccessible(true);
             constructor = c;
-            break; //todo maybe check if another constructor with Inject is found and throw
         }
 
         constructor = constructor != null ? constructor : clazz.getConstructor();
@@ -159,8 +197,12 @@ public class Container {
         implementations.put(c, subClass);
     }
 
-    public void registerInstance(Class c, Object instance) {
-        classInstances.put(c, instance); //todo throws if c exists
+    public void registerInstance(Class<?> c, Object instance) {
+        if (classInstances.containsKey(c)) {
+            throw new IllegalStateException("Instance already exists for class: " + c.getName());
+        }
+
+        classInstances.put(c, instance);
     }
 
     public void registerInstance(Object instance) {

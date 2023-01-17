@@ -1,6 +1,7 @@
 package classes;
 
 import com.github.kardzhaliyski.Container;
+import com.github.kardzhaliyski.ContainerException;
 import com.github.kardzhaliyski.classes.*;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -86,11 +87,9 @@ public class Tests {
         assertNotNull(inst);
     }
 
-    //    @Test(expected=ContainerException.class) //todo
     @Test()
     public void injectMissingDefaultImplementationForInterface() throws Exception {
-        AI inst = r.getInstance(AI.class);
-        assertNull(inst);
+        assertThrows(ContainerException.class, () -> r.getInstance(AI.class));
     }
 
     @Test
@@ -122,5 +121,14 @@ public class Tests {
         assertNotNull(inst);
         assertNotNull(inst.aField);
         assertEquals(a, inst.aField);
+    }
+
+    @Test
+    public void testLazy() throws Exception {
+        L instance = r.getInstance(L.class);
+        assertNotNull(instance.laField);
+        assertEquals(0, instance.laField.num);
+        assertEquals("something", instance.laField.doSomething());
+        assertEquals(5, instance.laField.num);
     }
 }
