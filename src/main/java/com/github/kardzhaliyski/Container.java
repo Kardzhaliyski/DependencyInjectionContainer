@@ -2,14 +2,13 @@ package com.github.kardzhaliyski;
 
 import com.github.kardzhaliyski.annotations.*;
 import com.github.kardzhaliyski.classes.Initializer;
+import com.github.kardzhaliyski.events.*;
+import com.github.kardzhaliyski.events.EventListener;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.lang.reflect.Parameter;
+import java.lang.reflect.*;
 import java.util.*;
 
 public class Container {
@@ -17,8 +16,15 @@ public class Container {
     private final Map<Class<?>, Object> classInstances = new HashMap<>();
     private final Map<Class<?>, Class<?>> implementations = new HashMap<>();
     private final Set<Class<?>> initsInProgress = new HashSet<>();
+    private ApplicationEventPublisher publisher;
 
     public Container() {
+        try {
+            this.publisher = getInstance(ApplicationEventPublisher.class);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
     }
 
     public Container(Properties properties) {
@@ -67,7 +73,27 @@ public class Container {
         }
 
         classInstances.put(c, ins);
+        extractListeners(ins);
         return (T) ins;
+    }
+
+    private void extractListeners(Object ins) throws NoSuchMethodException {
+        Class<?> clazz = ins.getClass();
+        if (ins instanceof ApplicationListener<?>) {
+            Method method = clazz.getMethod("onApplicationEvent", ApplicationEvent.class);
+            ListenerInstance li = new ListenerInstance(ins, method);
+            publisher.addListener(li);
+            return;
+        }
+
+        for (Method method : clazz.getDeclaredMethods()) {
+            if (!method.isAnnotationPresent(EventListener.class)) {
+                continue;
+            }
+
+            ListenerInstance li = new ListenerInstance(ins, method);
+            publisher.addListener(li);
+        }
     }
 
     private <T> boolean isAbstract(Class<T> c) {
@@ -168,7 +194,7 @@ public class Container {
 //            if (initsInProgress.contains(pt)) {
 //                o = getLazyObject(instance, field);
 //            } else {
-                o = getInstance(pt);
+            o = getInstance(pt);
 //            }
 
             params[i] = o;
