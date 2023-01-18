@@ -94,6 +94,7 @@ public class Container {
                 continue;
             }
 
+            field.setAccessible(true);
             Lazy lazy = field.getDeclaredAnnotation(Lazy.class);
             Object o;
             if (lazy != null) {
@@ -108,7 +109,11 @@ public class Container {
                 field.set(instance, o);
             } else {
                 Class<?> type = field.getType();
-                o = getInstance(type);
+                if (initsInProgress.contains(type)) {
+                    o = getLazyObject(instance, field);
+                } else {
+                    o = getInstance(type);
+                }
             }
 
             field.set(instance, o);
@@ -159,7 +164,14 @@ public class Container {
             }
 
             Class<?> pt = param.getType();
-            params[i] = getInstance(pt);
+            Object o;
+//            if (initsInProgress.contains(pt)) {
+//                o = getLazyObject(instance, field);
+//            } else {
+                o = getInstance(pt);
+//            }
+
+            params[i] = o;
         }
 
         return params;

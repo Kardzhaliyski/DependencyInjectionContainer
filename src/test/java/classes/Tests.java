@@ -131,4 +131,26 @@ public class Tests {
         assertEquals("something", instance.laField.doSomething());
         assertEquals(5, instance.laField.num);
     }
+
+    @Test
+    public void testCircularDependency() throws Exception {
+        J j = r.getInstance(J.class);
+        assertNotNull(j);
+        assertNotNull(j.jaField);
+        assertNotNull(j.jaField.jbField);
+        assertNotNull(j.jaField.jbField.jField);
+    }
+
+    @Test
+    public void testCircularDependencyChangeLazyFieldAfterAMethodIsCalled() throws Exception {
+        J j = r.getInstance(J.class);
+        J jField = j.jaField.jbField.jField;
+        assertNotEquals(j, jField);
+        jField.doSomething();
+        assertNotEquals(j, jField);
+        assertEquals(j, j.jaField.jbField.jField);
+    }
+
+
+
 }
