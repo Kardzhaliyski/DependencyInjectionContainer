@@ -1,9 +1,8 @@
-package classes;
+package tests;
 
+import tests.classes.*;
 import com.github.kardzhaliyski.Container;
 import com.github.kardzhaliyski.ContainerException;
-import com.github.kardzhaliyski.classes.*;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

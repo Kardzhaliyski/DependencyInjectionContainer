@@ -8,32 +8,47 @@ import java.time.LocalTime;
 
 public class MySlowListener {
 
-    public LocalTime event1Started = null;
-    public LocalTime event1Finished = null;
-    public LocalTime event2Finished = null;
-    public LocalTime event2Started = null;
+
+    public long event1Started = 0;
+    public long event1Finished = 0;
+    public long event2Started = 0;
+    public long event2Finished = 0;
 
     @EventListener
-    public void event1(Object obj) throws InterruptedException {
-        event1Started = LocalTime.now();
+    public void event1(String obj) {
+        event1Started = System.currentTimeMillis();
         task();
-        event1Finished = LocalTime.now();
+        event1Finished = System.currentTimeMillis();
     }
 
     @EventListener
-    public void event2(Object obj) throws InterruptedException {
-        event2Started = LocalTime.now();
+    public void event2(String obj) {
+        event2Started = System.currentTimeMillis();
         task();
-        event2Finished = LocalTime.now();
+        event2Finished = System.currentTimeMillis();
     }
 
-    private static void task() {
+    private void task() {
         String str = "";
         for (int i = 0; i < 100000; i++) {
-            str = str + i;
-            if(i % 100 == 0) {
+            str = str + Math.random();
+            if (i % 100 == 0) {
                 str = str.substring(str.length() / 2);
             }
         }
+    }
+
+    @EventListener
+    public void appEvent1(MyApplicationEvent event) {
+        event1Started = System.currentTimeMillis();
+        task();
+        event1Finished = System.currentTimeMillis();
+    }
+
+    @EventListener
+    public void appEvent2(MyApplicationEvent event) {
+        event2Started = System.currentTimeMillis();
+        task();
+        event2Finished = System.currentTimeMillis();
     }
 }

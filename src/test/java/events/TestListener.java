@@ -1,14 +1,16 @@
 package events;
 
 import com.github.kardzhaliyski.Container;
-import com.github.kardzhaliyski.classes.B;
 import com.github.kardzhaliyski.events.ApplicationEvent;
 import com.github.kardzhaliyski.events.ApplicationEventPublisher;
+import com.github.kardzhaliyski.events.SimpleApplicationEventMulticaster;
 import events.classes.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -75,8 +77,22 @@ public class TestListener {
 
         assertNotNull(listener.event1Finished);
         assertNotNull(listener.event2Finished);
-        assertTrue(listener.event1Finished.toNanoOfDay() >= listener.event2Started.toNanoOfDay() ||
-                listener.event2Finished.toNanoOfDay() >= listener.event1Started.toNanoOfDay());
+        assertTrue(listener.event1Finished <= listener.event2Started ||
+                listener.event2Finished <= listener.event1Started);
+    }
+
+    @Test
+    void testMultiThreadPublisher() throws Exception {
+        SimpleApplicationEventMulticaster publisher = r.getInstance(SimpleApplicationEventMulticaster.class);
+        publisher.setTaskExecutor(Executors.newFixedThreadPool(2));
+        MySlowListener listener = r.getInstance(MySlowListener.class);
+        publisher.multicastEvent(new MyApplicationEvent("event"));
+
+        TimeUnit.SECONDS.sleep(1);
+        assertNotEquals(0, listener.event1Finished);
+        assertNotEquals(0, listener.event2Finished);
+        assertTrue(listener.event2Started < listener.event1Finished);
+        assertTrue(listener.event1Started < listener.event2Finished);
     }
 
     @Test
@@ -123,6 +139,12 @@ public class TestListener {
 
         assertNotNull(exception);
         assertEquals(StackOverflowError.class, exception.getClass());
+    }
+
+    @Test
+    void testListenerCanRepeatOnItselfWhileMulticasting() throws Exception {
+        SimpleApplicationEventMulticaster publisher = r.getInstance(SimpleApplicationEventMulticaster.class);
+        assertThrows(StackOverflowError.class, () -> publisher.multicastEvent(new MyApplicationEvent(0)));
     }
 
     @Test

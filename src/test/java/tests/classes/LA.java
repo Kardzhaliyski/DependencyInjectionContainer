@@ -1,4 +1,4 @@
-package com.github.kardzhaliyski.classes;
+package tests.classes;
 
 public class LA {
     public int num = 5;

@@ -1,4 +1,4 @@
-package com.github.kardzhaliyski.classes;
+package tests.classes;
 
 import com.github.kardzhaliyski.annotations.Default;
 

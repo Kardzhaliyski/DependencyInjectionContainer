@@ -1,9 +1,15 @@
 package com.github.kardzhaliyski;
 
 import com.github.kardzhaliyski.annotations.*;
-import com.github.kardzhaliyski.classes.Initializer;
+import com.github.kardzhaliyski.asyncs.AsyncDelegation;
+import com.github.kardzhaliyski.asyncs.AsyncInvocationHandler;
+import com.github.kardzhaliyski.annotations.Initializer;
 import com.github.kardzhaliyski.events.*;
 import com.github.kardzhaliyski.events.EventListener;
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.implementation.InvocationHandlerAdapter;
+import net.bytebuddy.implementation.MethodDelegation;
+import net.bytebuddy.matcher.ElementMatchers;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
@@ -16,15 +22,14 @@ public class Container {
     private final Map<Class<?>, Object> classInstances = new HashMap<>();
     private final Map<Class<?>, Class<?>> implementations = new HashMap<>();
     private final Set<Class<?>> initsInProgress = new HashSet<>();
-    private ApplicationEventPublisher publisher;
+    private ListenerStorage listenerStorage;
 
     public Container() {
         try {
-            this.publisher = getInstance(ApplicationEventPublisher.class);
+            this.listenerStorage = getInstance(ListenerStorage.class);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-
     }
 
     public Container(Properties properties) {
@@ -41,21 +46,7 @@ public class Container {
             return (T) ins;
         }
 
-        Class<?> clazzImpl = implementations.get(c);
-        if (clazzImpl == null) {
-            Default ann = c.getDeclaredAnnotation(Default.class);
-            if (ann != null) {
-                clazzImpl = ann.value();
-                implementations.put(c, clazzImpl);
-            }
-        }
-
-        if (clazzImpl == null && (c.isInterface() || isAbstract(c))) {
-            throw new ContainerException("No implementation found for Interface: " + c.getName());
-        }
-
-
-        clazzImpl = clazzImpl != null ? clazzImpl : c;
+        Class<?> clazzImpl = getClassImpl(c);
         Object instance = classInstances.get(clazzImpl);
         if (instance != null) {
             return (T) instance;
@@ -77,12 +68,31 @@ public class Container {
         return (T) ins;
     }
 
+    private <T> Class<?> getClassImpl(Class<T> c) {
+        Class<?> clazzImpl = implementations.get(c);
+        if (clazzImpl == null) {
+            Default ann = c.getDeclaredAnnotation(Default.class);
+            if (ann != null) {
+                clazzImpl = ann.value();
+                implementations.put(c, clazzImpl);
+            }
+        }
+
+        if (clazzImpl == null && (c.isInterface() || isAbstract(c))) {
+            throw new ContainerException("No implementation found for Interface: " + c.getName());
+        }
+
+
+        clazzImpl = clazzImpl != null ? clazzImpl : c;
+        return clazzImpl;
+    }
+
     private void extractListeners(Object ins) throws NoSuchMethodException {
         Class<?> clazz = ins.getClass();
         if (ins instanceof ApplicationListener<?>) {
             Method method = clazz.getMethod("onApplicationEvent", ApplicationEvent.class);
             ListenerInstance li = new ListenerInstance(ins, method);
-            publisher.addListener(li);
+            listenerStorage.addListener(li);
             return;
         }
 
@@ -92,7 +102,7 @@ public class Container {
             }
 
             ListenerInstance li = new ListenerInstance(ins, method);
-            publisher.addListener(li);
+            listenerStorage.addListener(li);
         }
     }
 
@@ -115,7 +125,7 @@ public class Container {
     private void injectFields(Object instance) throws Exception {
         Class<?> clazz = instance.getClass();
         for (Field field : clazz.getDeclaredFields()) {
-            Inject ann = field.getDeclaredAnnotation(Inject.class);
+            Autowire ann = field.getDeclaredAnnotation(Autowire.class);
             if (ann == null) {
                 continue;
             }
@@ -129,9 +139,9 @@ public class Container {
                 continue;
             }
 
-            Named named = field.getDeclaredAnnotation(Named.class);
-            if (named != null) {
-                o = getInstance(field.getName());
+            Qualifier qualifier = field.getDeclaredAnnotation(Qualifier.class);
+            if (qualifier != null) {
+                o = qualifier.value().isBlank() ? getInstance(field.getName()) : getInstance(qualifier.value());
                 field.set(instance, o);
             } else {
                 Class<?> type = field.getType();
@@ -154,10 +164,10 @@ public class Container {
 
             @Override
             public Object answer(InvocationOnMock invocationOnMock) throws Throwable {
-                Named named = f.getDeclaredAnnotation(Named.class);
+                Qualifier qualifier = f.getDeclaredAnnotation(Qualifier.class);
                 Object o;
-                if (named != null) {
-                    o = getInstance(field.getName());
+                if (qualifier != null) {
+                    o = qualifier.value().isBlank() ? getInstance(field.getName()) : qualifier.value();
                 } else {
                     o = getInstance(field.getType());
                 }
@@ -169,10 +179,36 @@ public class Container {
     }
 
     private Object makeInstance(Class<?> clazz) throws Exception {
+        if (hasAsyncMethods(clazz)) {
+            clazz = getAsyncClass(clazz);
+        }
+
         Constructor<?> constructor = getConstructor(clazz);
         Object[] params = getParams(constructor);
         return constructor.newInstance(params);
     }
+
+    private Class<?> getAsyncClass(Class<?> clazz) {
+        return new ByteBuddy()
+                .subclass(clazz)
+                .method(ElementMatchers.isAnnotatedWith(Async.class))
+//                .intercept(InvocationHandlerAdapter.of(new AsyncInvocationHandler()))
+                .intercept(MethodDelegation.to(AsyncDelegation.class))
+                .make()
+                .load(clazz.getClassLoader())
+                .getLoaded();
+    }
+
+    private boolean hasAsyncMethods(Class<?> clazz) {
+        for (Method method : clazz.getMethods()) {
+            if (method.isAnnotationPresent(Async.class)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
 
     private Object[] getParams(Constructor<?> constructor) throws Exception {
         Object[] params = null;
@@ -183,7 +219,7 @@ public class Container {
 
         for (int i = 0; i < consParams.length; i++) {
             Parameter param = consParams[i];
-            NamedParameter named = param.getAnnotation(NamedParameter.class);
+            Qualifier named = param.getAnnotation(Qualifier.class);
             if (named != null) {
                 params[i] = getInstance(named.value());
                 continue;
@@ -206,7 +242,7 @@ public class Container {
     private static Constructor<?> getConstructor(Class<?> clazz) throws NoSuchMethodException {
         Constructor<?> constructor = null;
         for (Constructor<?> c : clazz.getDeclaredConstructors()) {
-            Inject ann = c.getDeclaredAnnotation(Inject.class);
+            Autowire ann = c.getDeclaredAnnotation(Autowire.class);
             if (ann == null) {
                 continue;
             }

@@ -1,4 +1,4 @@
-package com.github.kardzhaliyski.classes;
+package com.github.kardzhaliyski.annotations;
 
 public interface Initializer {
     void init() throws Exception;
